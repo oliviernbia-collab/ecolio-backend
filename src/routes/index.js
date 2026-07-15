@@ -1,0 +1,30 @@
+const router = require('express').Router();
+
+router.use('/auth', require('./auth.routes'));
+router.use('/schools', require('./schools.routes'));
+router.use('/academic-years', require('./academic_years.routes'));
+router.use('/uploads',        require('./uploads.routes'));
+router.use('/students', require('./students.routes'));
+router.use('/classes', require('./classes.routes'));
+router.use('/subjects', require('./subjects.routes'));
+router.use('/grades', require('./grades.routes'));
+router.use('/attendance', require('./attendance.routes'));
+router.use('/schedule', require('./schedule.routes'));
+router.use('/rooms', require('./rooms.routes'));
+router.use('/staff', require('./staff.routes'));
+router.use('/finance', require('./finance.routes'));
+router.use('/messages', require('./messages.routes'));
+router.use('/exams', require('./exams.routes'));
+router.use('/staff-attendance', require('./staff_attendance.routes'));
+router.use('/payroll', require('./payroll.routes'));
+router.use('/sms', require('./sms.routes'));
+router.use('/library', require('./library.routes'));
+router.use('/health', require('./health.routes'));
+router.use('/services', require('./services.routes'));
+router.use('/admin', require('./admin.routes'));
+router.use('/dashboard', require('./dashboard.routes'));
+router.use('/notifications', require('./notifications.routes'));
+router.use('/portal',        require('./portal.routes'));
+router.use('/public',        require('./public.routes'));
+
+module.exports = router;
