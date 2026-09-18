@@ -315,8 +315,8 @@ async function initDatabase() {
     // Seed messages
     const [msg1] = await connection.query(
       `INSERT INTO messages (school_id, sender_id, subject, content)
-       VALUES (?, ?, 'Réunion parents d\'élèves', 'Chers parents, nous vous invitons à la réunion parents-professeurs le vendredi 28 juin 2026 à 16h00 dans la grande salle.')`,
-      [schoolId, adminId]
+       VALUES (?, ?, ?, ?)`,
+      [schoolId, adminId, "Réunion parents d'élèves", 'Chers parents, nous vous invitons à la réunion parents-professeurs le vendredi 28 juin 2026 à 16h00 dans la grande salle.']
     );
     await connection.query(
       `INSERT INTO message_recipients (message_id, recipient_id) VALUES (?, ?), (?, ?)`,
@@ -325,8 +325,8 @@ async function initDatabase() {
 
     const [msg2] = await connection.query(
       `INSERT INTO messages (school_id, sender_id, subject, content)
-       VALUES (?, ?, 'Résultats du 2ème trimestre', 'Les bulletins du 2ème trimestre sont disponibles dans l\'application. Veuillez les consulter.')`,
-      [schoolId, t1Id]
+       VALUES (?, ?, ?, ?)`,
+      [schoolId, t1Id, 'Résultats du 2ème trimestre', "Les bulletins du 2ème trimestre sont disponibles dans l'application. Veuillez les consulter."]
     );
     await connection.query(
       `INSERT INTO message_recipients (message_id, recipient_id) VALUES (?, ?), (?, ?)`,
@@ -337,10 +337,14 @@ async function initDatabase() {
     // Seed notifications
     await connection.query(
       `INSERT INTO notifications (user_id, school_id, title, content, type) VALUES
-       (?, ?, 'Absence signalée', 'Amara Koné était absent aujourd\'hui.', 'absence'),
-       (?, ?, 'Nouveau bulletin', 'Le bulletin du T2 d\'Amara est disponible.', 'grade'),
-       (?, ?, 'Facture impayée', 'La facture ECO-2026-0004 est en attente de paiement.', 'finance')`,
-      [p1Id, schoolId, p1Id, schoolId, p1Id, schoolId]
+       (?, ?, ?, ?, 'absence'),
+       (?, ?, ?, ?, 'grade'),
+       (?, ?, ?, ?, 'finance')`,
+      [
+        p1Id, schoolId, 'Absence signalée', 'Amara Koné était absent aujourd\'hui.',
+        p1Id, schoolId, 'Nouveau bulletin', "Le bulletin du T2 d'Amara est disponible.",
+        p1Id, schoolId, 'Facture impayée', 'La facture ECO-2026-0004 est en attente de paiement.'
+      ]
     );
     console.log('✅ Notifications créées');
 
