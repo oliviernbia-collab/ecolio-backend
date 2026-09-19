@@ -2,6 +2,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../config/database');
 const { handleError } = require('../utils/errors');
+const { logActivity } = require('../services/activityLog');
+const { getSubscriptionState, TRIAL_DAYS } = require('../services/subscription');
 
 // Auto-migration : ajoute la colonne must_change_password si elle n'existe pas encore
 ;(async () => {
@@ -28,7 +30,8 @@ exports.login = async (req, res) => {
     }
 
     const [users] = await db.execute(
-      `SELECT u.*, s.name as school_name, s.primary_color, s.secondary_color, s.logo_url as school_logo, s.is_active as school_is_active
+      `SELECT u.*, s.name as school_name, s.primary_color, s.secondary_color, s.logo_url as school_logo,
+              s.is_active as school_is_active, s.trial_ends_at, s.subscription_paid_until
        FROM users u
        LEFT JOIN schools s ON u.school_id = s.id
        WHERE u.email = ? AND u.is_active = 1`,
@@ -36,12 +39,17 @@ exports.login = async (req, res) => {
     );
 
     if (!users.length) {
+      logActivity({ action: 'login_failed', entityType: 'auth', description: `Tentative de connexion échouée : ${email}`, ip: req.ip });
       return res.status(401).json({ success: false, message: 'Email ou mot de passe incorrect' });
     }
 
     const user = users[0];
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
+      logActivity({
+        schoolId: user.school_id, userId: user.id, userName: `${user.first_name} ${user.last_name}`, userRole: user.role,
+        action: 'login_failed', entityType: 'auth', description: 'Mot de passe incorrect', ip: req.ip,
+      });
       return res.status(401).json({ success: false, message: 'Email ou mot de passe incorrect' });
     }
 
@@ -51,6 +59,10 @@ exports.login = async (req, res) => {
     delete user.school_is_active;
 
     await db.execute('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
+    logActivity({
+      schoolId: user.school_id, userId: user.id, userName: `${user.first_name} ${user.last_name}`, userRole: user.role,
+      action: 'login', entityType: 'auth', description: 'Connexion réussie', ip: req.ip,
+    });
 
     const token = jwt.sign(
       { id: user.id, role: user.role, school_id: user.school_id },
@@ -58,8 +70,11 @@ exports.login = async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
 
+    const subscription = user.school_id ? getSubscriptionState(user) : null;
     delete user.password;
-    res.json({ success: true, token, user });
+    delete user.trial_ends_at;
+    delete user.subscription_paid_until;
+    res.json({ success: true, token, user: { ...user, subscription } });
   } catch (err) {
     handleError(res, err);
   }
@@ -85,8 +100,8 @@ exports.register = async (req, res) => {
     }
 
     const [schoolResult] = await db.execute(
-      'INSERT INTO schools (name, address, phone, email) VALUES (?, ?, ?, ?)',
-      [school.name, school.address || null, school.phone || null, school.email || admin.email]
+      'INSERT INTO schools (name, address, phone, email, trial_ends_at) VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? DAY))',
+      [school.name, school.address || null, school.phone || null, school.email || admin.email, TRIAL_DAYS]
     );
     const schoolId = schoolResult.insertId;
 
@@ -96,13 +111,26 @@ exports.register = async (req, res) => {
       [schoolId, admin.first_name, admin.last_name, admin.email, hash, 'director']
     );
 
-    res.status(201).json({ success: true, message: 'École et compte créés avec succès' });
+    logActivity({
+      schoolId, userName: `${admin.first_name} ${admin.last_name}`, userRole: 'director',
+      action: 'create', entityType: 'school', entityId: schoolId, description: `Nouvelle école inscrite : ${school.name}`,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `École et compte créés avec succès. Vous bénéficiez de ${TRIAL_DAYS} jours d'essai gratuit.`,
+      trial_days: TRIAL_DAYS,
+    });
   } catch (err) {
     handleError(res, err);
   }
 };
 
 exports.logout = async (req, res) => {
+  logActivity({
+    schoolId: req.user.school_id, userId: req.user.id, userName: `${req.user.first_name} ${req.user.last_name}`, userRole: req.user.role,
+    action: 'logout', entityType: 'auth', description: 'Déconnexion', ip: req.ip,
+  });
   res.json({ success: true, message: 'Déconnexion réussie' });
 };
 
@@ -110,13 +138,17 @@ exports.me = async (req, res) => {
   try {
     const [users] = await db.execute(
       `SELECT u.id, u.school_id, u.first_name, u.last_name, u.email, u.role, u.phone, u.avatar_url, u.must_change_password,
-              s.name as school_name, s.primary_color, s.secondary_color, s.logo_url as school_logo, s.address as school_address
+              s.name as school_name, s.primary_color, s.secondary_color, s.logo_url as school_logo, s.address as school_address,
+              s.trial_ends_at, s.subscription_paid_until
        FROM users u
        LEFT JOIN schools s ON u.school_id = s.id
        WHERE u.id = ?`,
       [req.user.id]
     );
-    res.json({ success: true, user: users[0] });
+    const user = users[0];
+    const subscription = user?.school_id ? getSubscriptionState(user) : null;
+    if (user) { delete user.trial_ends_at; delete user.subscription_paid_until; }
+    res.json({ success: true, user: user ? { ...user, subscription } : user });
   } catch (err) {
     handleError(res, err);
   }
@@ -148,6 +180,10 @@ exports.changePassword = async (req, res) => {
     }
     const hash = await bcrypt.hash(new_password, 10);
     await db.execute('UPDATE users SET password = ?, must_change_password = 0 WHERE id = ?', [hash, req.user.id]);
+    logActivity({
+      schoolId: req.user.school_id, userId: req.user.id, userName: `${req.user.first_name} ${req.user.last_name}`, userRole: req.user.role,
+      action: 'password_change', entityType: 'auth', description: 'Mot de passe modifié', ip: req.ip,
+    });
     res.json({ success: true, message: 'Mot de passe modifié' });
   } catch (err) {
     handleError(res, err);

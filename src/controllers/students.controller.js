@@ -127,21 +127,30 @@ exports.create = async (req, res) => {
       first_name, last_name, birth_date, birth_place, gender, class_id,
       parent_id, parent_data, address, blood_type, medical_notes,
       emergency_contact_name, emergency_contact_phone, status, student_email,
+      matricule: customMatricule,
     } = req.body;
 
     if (!first_name || !last_name) {
       return res.status(400).json({ success: false, message: 'Prénom et nom sont requis' });
     }
 
-    const parentResult = await resolveParentId(parent_id, parent_data, req.user.school_id);
+    let matricule = customMatricule?.trim();
+    if (matricule) {
+      const [existingMatricule] = await db.execute('SELECT id FROM students WHERE matricule = ?', [matricule]);
+      if (existingMatricule.length) {
+        return res.status(409).json({ success: false, message: 'Ce matricule est déjà utilisé par un autre élève' });
+      }
+    } else {
+      // Générer le matricule automatiquement
+      const [last] = await db.execute(
+        'SELECT matricule FROM students WHERE school_id = ? ORDER BY id DESC LIMIT 1',
+        [req.user.school_id]
+      );
+      const nextNum = last.length ? parseInt(last[0].matricule?.split('-')[1] || '0') + 1 : 1;
+      matricule = `ECO-${String(nextNum).padStart(4, '0')}`;
+    }
 
-    // Générer le matricule
-    const [last] = await db.execute(
-      'SELECT matricule FROM students WHERE school_id = ? ORDER BY id DESC LIMIT 1',
-      [req.user.school_id]
-    );
-    const nextNum  = last.length ? parseInt(last[0].matricule?.split('-')[1] || '0') + 1 : 1;
-    const matricule = `ECO-${String(nextNum).padStart(4, '0')}`;
+    const parentResult = await resolveParentId(parent_id, parent_data, req.user.school_id);
 
     const [result] = await db.execute(
       `INSERT INTO students (school_id, matricule, first_name, last_name, birth_date, birth_place, gender,
@@ -198,21 +207,31 @@ exports.update = async (req, res) => {
     const {
       first_name, last_name, birth_date, birth_place, gender, class_id,
       parent_id, parent_data, address, blood_type, medical_notes,
-      emergency_contact_name, emergency_contact_phone, status,
+      emergency_contact_name, emergency_contact_phone, status, matricule,
     } = req.body;
+
+    if (matricule?.trim()) {
+      const [existingMatricule] = await db.execute(
+        'SELECT id FROM students WHERE matricule = ? AND id != ?',
+        [matricule.trim(), req.params.id]
+      );
+      if (existingMatricule.length) {
+        return res.status(409).json({ success: false, message: 'Ce matricule est déjà utilisé par un autre élève' });
+      }
+    }
 
     const parentResult = await resolveParentId(parent_id, parent_data, req.user.school_id);
 
     await db.execute(
       `UPDATE students SET first_name=?, last_name=?, birth_date=?, birth_place=?, gender=?,
          class_id=?, parent_id=?, address=?, blood_type=?, medical_notes=?,
-         emergency_contact_name=?, emergency_contact_phone=?, status=?
+         emergency_contact_name=?, emergency_contact_phone=?, status=?, matricule=COALESCE(?, matricule)
        WHERE id=? AND school_id=?`,
       [first_name, last_name, birth_date || null, birth_place || null, gender,
        class_id || null, parentResult.id,
        address || null, blood_type || null, medical_notes || null,
        emergency_contact_name || null, emergency_contact_phone || null,
-       status, req.params.id, req.user.school_id]
+       status, matricule?.trim() || null, req.params.id, req.user.school_id]
     );
     res.json({ success: true, message: 'Élève mis à jour', parent_id: parentResult.id });
   } catch (err) {

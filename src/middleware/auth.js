@@ -1,6 +1,11 @@
 const jwt = require('jsonwebtoken');
 const db = require('../config/database');
 const { roleHasPermission } = require('../services/permissions');
+const { getSubscriptionState } = require('../services/subscription');
+
+// Routes toujours accessibles même abonnement expiré : connexion/déconnexion/profil,
+// et la gestion de l'abonnement elle-même (sinon impossible de payer pour se débloquer).
+const ALLOWED_WHEN_EXPIRED = ['/api/auth', '/api/subscription'];
 
 const authenticate = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -11,7 +16,8 @@ const authenticate = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const [users] = await db.execute(
-      `SELECT u.id, u.school_id, u.role, u.first_name, u.last_name, u.email, s.is_active as school_is_active
+      `SELECT u.id, u.school_id, u.role, u.first_name, u.last_name, u.email,
+              s.is_active as school_is_active, s.trial_ends_at, s.subscription_paid_until
        FROM users u LEFT JOIN schools s ON u.school_id = s.id
        WHERE u.id = ? AND u.is_active = 1`,
       [decoded.id]
@@ -22,7 +28,23 @@ const authenticate = async (req, res, next) => {
     if (users[0].school_id && users[0].school_is_active === 0) {
       return res.status(403).json({ success: false, message: 'Cette école a été suspendue. Contactez le support Écolio.' });
     }
+
+    if (users[0].school_id) {
+      const subscription = getSubscriptionState(users[0]);
+      req.subscription = subscription;
+      const whitelisted = ALLOWED_WHEN_EXPIRED.some(p => req.baseUrl.startsWith(p));
+      if (!subscription.active && !whitelisted) {
+        return res.status(402).json({
+          success: false,
+          code: 'SUBSCRIPTION_EXPIRED',
+          message: "Votre période d'essai est terminée. Merci de régulariser votre abonnement pour continuer.",
+        });
+      }
+    }
+
     delete users[0].school_is_active;
+    delete users[0].trial_ends_at;
+    delete users[0].subscription_paid_until;
     req.user = users[0];
     next();
   } catch (err) {
