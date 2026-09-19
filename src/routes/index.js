@@ -25,6 +25,7 @@ router.use('/admin', require('./admin.routes'));
 router.use('/activity-logs', require('./activityLog.routes'));
 router.use('/subscription', require('./subscription.routes'));
 router.use('/top-students', require('./topStudents.routes'));
+router.use('/publications', require('./publications.routes'));
 router.use('/dashboard', require('./dashboard.routes'));
 router.use('/notifications', require('./notifications.routes'));
 router.use('/portal',        require('./portal.routes'));

@@ -16,6 +16,41 @@ exports.getSchools = async (req, res) => {
   }
 };
 
+// GET /public/schools/:id — fiche détaillée d'une école publique (page /ecoles/:id)
+exports.getSchoolById = async (req, res) => {
+  try {
+    const [[school]] = await db.execute(
+      `SELECT id, name, city, address, phone, email, logo_url, primary_color, secondary_color
+       FROM schools WHERE id = ? AND is_public = 1 AND is_active = 1`,
+      [req.params.id]
+    );
+    if (!school) return res.status(404).json({ success: false, message: 'École non trouvée' });
+    res.json({ success: true, data: school });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+// GET /public/schools/:id/publications — publications publiques d'une école (images, vidéos, annonces)
+exports.getSchoolPublications = async (req, res) => {
+  try {
+    const [[school]] = await db.execute(
+      'SELECT id FROM schools WHERE id = ? AND is_public = 1 AND is_active = 1',
+      [req.params.id]
+    );
+    if (!school) return res.status(404).json({ success: false, message: 'École non trouvée' });
+
+    const [rows] = await db.execute(
+      `SELECT id, type, title, content, media_url, media_type, created_at
+       FROM school_publications WHERE school_id = ? ORDER BY created_at DESC LIMIT 60`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
 // GET /public/cities — villes distinctes des écoles publiques (pour le filtre)
 exports.getCities = async (req, res) => {
   try {

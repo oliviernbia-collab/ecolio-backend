@@ -60,6 +60,7 @@ const uploadLimiter = rateLimit({
 });
 app.use('/api/uploads', uploadLimiter);
 app.use('/api/subscription/payments', uploadLimiter);
+app.use('/api/publications', (req, res, next) => (req.method === 'POST' ? uploadLimiter(req, res, next) : next()));
 
 // Limite l'envoi de SMS : coûteux (facturé au fournisseur) et exploitable comme vecteur
 // de spam vers les numéros des parents/personnel en cas de compte compromis.
