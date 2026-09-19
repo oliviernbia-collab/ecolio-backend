@@ -59,9 +59,29 @@ exports.getByTeacher = async (req, res) => {
   }
 };
 
+async function assertFksInSchool({ class_id, subject_id, teacher_id, room_id }, schoolId) {
+  const checks = [
+    class_id   && ['classes', class_id],
+    subject_id && ['subjects', subject_id],
+    room_id    && ['rooms', room_id],
+  ].filter(Boolean);
+  for (const [table, id] of checks) {
+    const [[row]] = await db.execute(`SELECT id FROM ${table} WHERE id=? AND school_id=?`, [id, schoolId]);
+    if (!row) return false;
+  }
+  if (teacher_id) {
+    const [[t]] = await db.execute('SELECT id FROM users WHERE id=? AND school_id=?', [teacher_id, schoolId]);
+    if (!t) return false;
+  }
+  return true;
+}
+
 exports.create = async (req, res) => {
   try {
     const { class_id, subject_id, teacher_id, room_id, day_of_week, start_time, end_time } = req.body;
+    if (!(await assertFksInSchool({ class_id, subject_id, teacher_id, room_id }, req.user.school_id))) {
+      return res.status(400).json({ success: false, message: 'Classe, matière, enseignant ou salle introuvable' });
+    }
     // Conflict check
     const [conflicts] = await db.execute(
       `SELECT id FROM schedule WHERE school_id=? AND day_of_week=? AND class_id=?
@@ -84,6 +104,9 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     const { class_id, subject_id, teacher_id, room_id, day_of_week, start_time, end_time } = req.body;
+    if (!(await assertFksInSchool({ class_id, subject_id, teacher_id, room_id }, req.user.school_id))) {
+      return res.status(400).json({ success: false, message: 'Classe, matière, enseignant ou salle introuvable' });
+    }
     await db.execute(
       'UPDATE schedule SET class_id=?,subject_id=?,teacher_id=?,room_id=?,day_of_week=?,start_time=?,end_time=? WHERE id=? AND school_id=?',
       [class_id, subject_id, teacher_id || null, room_id || null, day_of_week, start_time, end_time, req.params.id, req.user.school_id]

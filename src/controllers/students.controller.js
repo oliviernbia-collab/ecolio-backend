@@ -2,6 +2,7 @@ const db     = require('../config/database');
 const bcrypt = require('bcryptjs');
 const { handleError } = require('../utils/errors');
 const { sendExcel } = require('../utils/excel');
+const { generateTempPassword } = require('../utils/password');
 
 function buildStudentsQuery(schoolId, { class_id, status, search }) {
   let query = `
@@ -98,20 +99,24 @@ function toEmailSlug(str) {
 // Résoudre le parent_id : soit existant, soit créer un nouveau compte parent
 // Retourne { id, isNew, email, password }
 async function resolveParentId(parentId, parentData, schoolId) {
-  if (parentId) return { id: parseInt(parentId), isNew: false, email: null, password: null };
+  if (parentId) {
+    const [[parent]] = await db.execute('SELECT id FROM users WHERE id=? AND school_id=? AND role=?', [parseInt(parentId), schoolId, 'parent']);
+    if (!parent) return { id: null, isNew: false, email: null, password: null };
+    return { id: parent.id, isNew: false, email: null, password: null };
+  }
   if (!parentData) return { id: null, isNew: false, email: null, password: null };
 
   const { first_name, last_name, email, phone } = parentData;
   if (!first_name && !last_name) return { id: null, isNew: false, email: null, password: null };
 
-  // Si email fourni, vérifier si un compte existe déjà
+  // Si email fourni, vérifier si un compte parent existe déjà dans CETTE école
   if (email && email.trim()) {
-    const [existing] = await db.execute('SELECT id FROM users WHERE email = ?', [email.trim()]);
+    const [existing] = await db.execute('SELECT id FROM users WHERE email = ? AND school_id = ? AND role = ?', [email.trim(), schoolId, 'parent']);
     if (existing.length) return { id: existing[0].id, isNew: false, email: email.trim(), password: null };
   }
 
   // Créer un nouveau compte parent
-  const password = 'Ecolio1234!';
+  const password = generateTempPassword();
   const hash = await bcrypt.hash(password, 10);
   const safeEmail = email?.trim() || `parent_${Date.now()}@ecolio.local`;
   const [result] = await db.execute(
@@ -132,6 +137,11 @@ exports.create = async (req, res) => {
 
     if (!first_name || !last_name) {
       return res.status(400).json({ success: false, message: 'Prénom et nom sont requis' });
+    }
+
+    if (class_id) {
+      const [[cls]] = await db.execute('SELECT id FROM classes WHERE id=? AND school_id=?', [class_id, req.user.school_id]);
+      if (!cls) return res.status(400).json({ success: false, message: 'Classe introuvable' });
     }
 
     let matricule = customMatricule?.trim();
@@ -209,6 +219,11 @@ exports.update = async (req, res) => {
       parent_id, parent_data, address, blood_type, medical_notes,
       emergency_contact_name, emergency_contact_phone, status, matricule,
     } = req.body;
+
+    if (class_id) {
+      const [[cls]] = await db.execute('SELECT id FROM classes WHERE id=? AND school_id=?', [class_id, req.user.school_id]);
+      if (!cls) return res.status(400).json({ success: false, message: 'Classe introuvable' });
+    }
 
     if (matricule?.trim()) {
       const [existingMatricule] = await db.execute(

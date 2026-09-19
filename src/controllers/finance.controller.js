@@ -201,17 +201,20 @@ exports.create = async (req, res) => {
 exports.markPaid = async (req, res) => {
   try {
     const { payment_method } = req.body;
-    await db.execute(
+    const [result] = await db.execute(
       "UPDATE invoices SET status='paid', payment_method=?, paid_at=NOW() WHERE id=? AND school_id=?",
       [payment_method || 'Espèces', req.params.id, req.user.school_id]
     );
+    if (!result.affectedRows) {
+      return res.status(404).json({ success: false, message: 'Facture non trouvée' });
+    }
 
     // Notification au parent
     const [inv] = await db.execute(
       `SELECT i.amount, i.type, s.parent_id, CONCAT(s.first_name,' ',s.last_name) as student_name
        FROM invoices i JOIN students s ON i.student_id=s.id
-       WHERE i.id=?`,
-      [req.params.id]
+       WHERE i.id=? AND i.school_id=?`,
+      [req.params.id, req.user.school_id]
     );
     if (inv[0]?.parent_id) {
       await createNotification({

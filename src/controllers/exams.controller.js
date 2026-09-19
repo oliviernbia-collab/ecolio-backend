@@ -57,6 +57,19 @@ exports.getOne = async (req, res) => {
   }
 };
 
+async function assertFksInSchool({ class_id, subject_id, room_id }, schoolId) {
+  const checks = [
+    class_id   && ['classes', class_id],
+    subject_id && ['subjects', subject_id],
+    room_id    && ['rooms', room_id],
+  ].filter(Boolean);
+  for (const [table, id] of checks) {
+    const [[row]] = await db.execute(`SELECT id FROM ${table} WHERE id=? AND school_id=?`, [id, schoolId]);
+    if (!row) return false;
+  }
+  return true;
+}
+
 async function checkConflict(schoolId, roomId, examDate, startTime, endTime, excludeId) {
   if (!roomId) return false;
   let query = `SELECT id FROM exams WHERE school_id=? AND room_id=? AND exam_date=? AND status!='annule'
@@ -72,6 +85,9 @@ exports.create = async (req, res) => {
     const { class_id, subject_id, title, exam_date, start_time, end_time, room_id, period, max_value, academic_year_id } = req.body;
     if (!class_id || !subject_id || !title || !exam_date || !start_time || !end_time) {
       return res.status(400).json({ success: false, message: 'Classe, matière, titre, date et horaires sont requis' });
+    }
+    if (!(await assertFksInSchool({ class_id, subject_id, room_id }, req.user.school_id))) {
+      return res.status(400).json({ success: false, message: 'Classe, matière ou salle introuvable' });
     }
     if (await checkConflict(req.user.school_id, room_id, exam_date, start_time, end_time)) {
       return res.status(400).json({ success: false, message: 'Cette salle est déjà réservée sur ce créneau' });
@@ -90,6 +106,9 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     const { class_id, subject_id, title, exam_date, start_time, end_time, room_id, period, max_value, status } = req.body;
+    if (!(await assertFksInSchool({ class_id, subject_id, room_id }, req.user.school_id))) {
+      return res.status(400).json({ success: false, message: 'Classe, matière ou salle introuvable' });
+    }
     if (await checkConflict(req.user.school_id, room_id, exam_date, start_time, end_time, req.params.id)) {
       return res.status(400).json({ success: false, message: 'Cette salle est déjà réservée sur ce créneau' });
     }
@@ -116,6 +135,10 @@ exports.remove = async (req, res) => {
 exports.addSupervisor = async (req, res) => {
   try {
     const { teacher_id } = req.body;
+    const [[exam]] = await db.execute('SELECT id FROM exams WHERE id=? AND school_id=?', [req.params.id, req.user.school_id]);
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen introuvable' });
+    const [[teacher]] = await db.execute('SELECT id FROM users WHERE id=? AND school_id=?', [teacher_id, req.user.school_id]);
+    if (!teacher) return res.status(404).json({ success: false, message: 'Enseignant introuvable' });
     await db.execute('INSERT IGNORE INTO exam_supervisors (exam_id, teacher_id) VALUES (?,?)', [req.params.id, teacher_id]);
     res.status(201).json({ success: true, message: 'Surveillant ajouté' });
   } catch (err) {
@@ -125,6 +148,8 @@ exports.addSupervisor = async (req, res) => {
 
 exports.removeSupervisor = async (req, res) => {
   try {
+    const [[exam]] = await db.execute('SELECT id FROM exams WHERE id=? AND school_id=?', [req.params.id, req.user.school_id]);
+    if (!exam) return res.status(404).json({ success: false, message: 'Examen introuvable' });
     await db.execute('DELETE FROM exam_supervisors WHERE exam_id=? AND teacher_id=?', [req.params.id, req.params.teacherId]);
     res.json({ success: true, message: 'Surveillant retiré' });
   } catch (err) {

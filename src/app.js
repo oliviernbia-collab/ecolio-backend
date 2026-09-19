@@ -49,6 +49,29 @@ const changePasswordLimiter = rateLimit({
 });
 app.use('/api/auth/change-password', changePasswordLimiter);
 
+// Limite les uploads (avatars, photos, logos, preuves de paiement) : évite qu'un compte
+// compromis ou un script abusif épuise le quota Cloudinary via des envois en rafale.
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { success: false, message: 'Trop de fichiers envoyés. Réessayez dans 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/uploads', uploadLimiter);
+app.use('/api/subscription/payments', uploadLimiter);
+
+// Limite l'envoi de SMS : coûteux (facturé au fournisseur) et exploitable comme vecteur
+// de spam vers les numéros des parents/personnel en cas de compte compromis.
+const smsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, message: 'Trop de SMS envoyés. Réessayez dans 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/sms', (req, res, next) => (req.method === 'POST' && req.path === '/' ? smsLimiter(req, res, next) : next()));
+
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 app.use(isProd ? morgan('combined') : morgan('dev'));

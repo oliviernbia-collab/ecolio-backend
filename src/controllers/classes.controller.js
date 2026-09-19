@@ -47,9 +47,18 @@ exports.getStudents = async (req, res) => {
   }
 };
 
+async function assertTeacherInSchool(teacherId, schoolId) {
+  if (!teacherId) return true;
+  const [[t]] = await db.execute('SELECT id FROM users WHERE id=? AND school_id=?', [teacherId, schoolId]);
+  return !!t;
+}
+
 exports.create = async (req, res) => {
   try {
     const { name, level, cycle, teacher_id, capacity } = req.body;
+    if (!(await assertTeacherInSchool(teacher_id, req.user.school_id))) {
+      return res.status(400).json({ success: false, message: 'Enseignant introuvable' });
+    }
     const [result] = await db.execute(
       'INSERT INTO classes (school_id, name, level, cycle, teacher_id, capacity) VALUES (?, ?, ?, ?, ?, ?)',
       [req.user.school_id, name, level, cycle, teacher_id || null, capacity || 30]
@@ -63,6 +72,9 @@ exports.create = async (req, res) => {
 exports.update = async (req, res) => {
   try {
     const { name, level, cycle, teacher_id, capacity } = req.body;
+    if (!(await assertTeacherInSchool(teacher_id, req.user.school_id))) {
+      return res.status(400).json({ success: false, message: 'Enseignant introuvable' });
+    }
     await db.execute(
       'UPDATE classes SET name=?, level=?, cycle=?, teacher_id=?, capacity=? WHERE id=? AND school_id=?',
       [name, level, cycle, teacher_id || null, capacity, req.params.id, req.user.school_id]

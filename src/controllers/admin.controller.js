@@ -101,6 +101,34 @@ exports.approveSubscriptionPayment = async (req, res) => {
   } catch (err) { handleError(res, err); }
 };
 
+// GET /admin/users?from=&to=&role=&school_id=&search= — tous les utilisateurs, toutes écoles confondues
+exports.getUsers = async (req, res) => {
+  try {
+    const { from, to, role, school_id, search } = req.query;
+    const params = [];
+    let where = 'WHERE 1=1';
+    if (from)      { where += ' AND u.created_at >= ?'; params.push(from); }
+    if (to)        { where += ' AND u.created_at <= ?'; params.push(`${to} 23:59:59`); }
+    if (role)      { where += ' AND u.role = ?'; params.push(role); }
+    if (school_id) { where += ' AND u.school_id = ?'; params.push(school_id); }
+    if (search)    {
+      where += ' AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    const [rows] = await db.execute(
+      `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.phone, u.is_active,
+              u.last_login, u.created_at, s.id as school_id, s.name as school_name
+       FROM users u
+       LEFT JOIN schools s ON u.school_id = s.id
+       ${where}
+       ORDER BY u.created_at DESC
+       LIMIT 500`,
+      params
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) { handleError(res, err); }
+};
+
 // PUT /admin/subscription-payments/:id/reject
 exports.rejectSubscriptionPayment = async (req, res) => {
   try {

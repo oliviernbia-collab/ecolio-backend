@@ -134,14 +134,15 @@ exports.update = async (req, res) => {
 exports.markPaid = async (req, res) => {
   try {
     const { payment_method } = req.body;
-    await db.execute(
+    const [result] = await db.execute(
       "UPDATE payslips SET status='paid', payment_method=?, paid_at=NOW() WHERE id=? AND school_id=?",
       [payment_method || 'Espèces', req.params.id, req.user.school_id]
     );
+    if (!result.affectedRows) return res.status(404).json({ success: false, message: 'Fiche de paie introuvable' });
     const [rows] = await db.execute(
       `SELECT p.net_amount, p.period_month, st.user_id
-       FROM payslips p JOIN staff st ON p.staff_id=st.id WHERE p.id=?`,
-      [req.params.id]
+       FROM payslips p JOIN staff st ON p.staff_id=st.id WHERE p.id=? AND p.school_id=?`,
+      [req.params.id, req.user.school_id]
     );
     if (rows.length) {
       await createNotification({

@@ -59,10 +59,10 @@ async function teacherStats(userId, schoolId) {
   const [myClasses]  = await db.execute(
     `SELECT c.*, COUNT(s.id) as student_count
      FROM classes c LEFT JOIN students s ON s.class_id=c.id AND s.status!='archive'
-     WHERE c.teacher_id=? OR c.school_id=? AND c.id IN (
+     WHERE (c.teacher_id=? AND c.school_id=?) OR (c.school_id=? AND c.id IN (
        SELECT DISTINCT class_id FROM schedule WHERE teacher_id=?
-     )
-     GROUP BY c.id ORDER BY c.name`, [userId, schoolId, userId]);
+     ))
+     GROUP BY c.id ORDER BY c.name`, [userId, schoolId, schoolId, userId]);
 
   const [todaySchedule] = await db.execute(
     `SELECT sch.*, sub.name as subject_name, c.name as class_name, r.name as room_name

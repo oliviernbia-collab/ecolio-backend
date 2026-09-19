@@ -43,12 +43,13 @@ exports.getByClass = async (req, res) => {
     const { date } = req.query;
     const d = date || new Date().toISOString().split('T')[0];
     const [students] = await db.execute(
-      "SELECT s.id, s.first_name, s.last_name, s.matricule, s.photo_url FROM students s WHERE s.class_id=? AND s.status!='archive' ORDER BY s.last_name",
-      [req.params.classId]
+      "SELECT s.id, s.first_name, s.last_name, s.matricule, s.photo_url FROM students s WHERE s.class_id=? AND s.school_id=? AND s.status!='archive' ORDER BY s.last_name",
+      [req.params.classId, req.user.school_id]
     );
     const [records] = await db.execute(
-      'SELECT * FROM attendance WHERE class_id=? AND date=?',
-      [req.params.classId, d]
+      `SELECT a.* FROM attendance a JOIN classes c ON a.class_id=c.id
+       WHERE a.class_id=? AND a.date=? AND c.school_id=?`,
+      [req.params.classId, d, req.user.school_id]
     );
     const recordMap = {};
     for (const r of records) recordMap[r.student_id] = r;
@@ -65,11 +66,12 @@ exports.getByClass = async (req, res) => {
 exports.getByStudent = async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
-    let query = 'SELECT * FROM attendance WHERE student_id=?';
-    const params = [req.params.studentId];
-    if (start_date) { query += ' AND date >= ?'; params.push(start_date); }
-    if (end_date)   { query += ' AND date <= ?'; params.push(end_date); }
-    query += ' ORDER BY date DESC';
+    let query = `SELECT a.* FROM attendance a JOIN students s ON a.student_id=s.id
+      WHERE a.student_id=? AND s.school_id=?`;
+    const params = [req.params.studentId, req.user.school_id];
+    if (start_date) { query += ' AND a.date >= ?'; params.push(start_date); }
+    if (end_date)   { query += ' AND a.date <= ?'; params.push(end_date); }
+    query += ' ORDER BY a.date DESC';
     const [rows] = await db.execute(query, params);
     const total    = rows.length;
     const absences = rows.filter(r => r.status === 'absent').length;
@@ -83,6 +85,11 @@ exports.getByStudent = async (req, res) => {
 exports.record = async (req, res) => {
   try {
     const { student_id, class_id, date, status, justification } = req.body;
+    const [[student]] = await db.execute(
+      'SELECT id FROM students WHERE id=? AND class_id=? AND school_id=?',
+      [student_id, class_id, req.user.school_id]
+    );
+    if (!student) return res.status(404).json({ success: false, message: 'Élève introuvable' });
     await db.execute(
       `INSERT INTO attendance (student_id, class_id, date, status, justified, justification, recorded_by)
        VALUES (?,?,?,?,?,?,?)
@@ -113,7 +120,18 @@ exports.record = async (req, res) => {
 exports.bulkRecord = async (req, res) => {
   try {
     const { class_id, date, records } = req.body;
+    const [classRows] = await db.execute(
+      'SELECT id FROM classes WHERE id=? AND school_id=?',
+      [class_id, req.user.school_id]
+    );
+    if (!classRows.length) return res.status(404).json({ success: false, message: 'Classe introuvable' });
+    const [studentRows] = await db.execute(
+      'SELECT id FROM students WHERE class_id=? AND school_id=?',
+      [class_id, req.user.school_id]
+    );
+    const validIds = new Set(studentRows.map(s => s.id));
     for (const r of records) {
+      if (!validIds.has(r.student_id)) continue;
       await db.execute(
         `INSERT INTO attendance (student_id, class_id, date, status, recorded_by)
          VALUES (?,?,?,?,?)
@@ -142,10 +160,13 @@ exports.bulkRecord = async (req, res) => {
 exports.justify = async (req, res) => {
   try {
     const { justification } = req.body;
-    await db.execute(
-      'UPDATE attendance SET justified=1, justification=? WHERE id=?',
-      [justification, req.params.id]
+    const [result] = await db.execute(
+      `UPDATE attendance a JOIN students s ON a.student_id=s.id
+       SET a.justified=1, a.justification=?
+       WHERE a.id=? AND s.school_id=?`,
+      [justification, req.params.id, req.user.school_id]
     );
+    if (!result.affectedRows) return res.status(404).json({ success: false, message: 'Enregistrement introuvable' });
     res.json({ success: true, message: 'Absence justifiée' });
   } catch (err) {
     handleError(res, err);

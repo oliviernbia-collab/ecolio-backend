@@ -1,6 +1,7 @@
 const db = require('../config/database');
 const bcrypt = require('bcryptjs');
 const { handleError } = require('../utils/errors');
+const { generateTempPassword } = require('../utils/password');
 
 exports.getAll = async (req, res) => {
   try {
@@ -35,7 +36,8 @@ exports.getOne = async (req, res) => {
 exports.create = async (req, res) => {
   try {
     const { first_name, last_name, email, phone, role, position, contract_type, hire_date, salary, password } = req.body;
-    const hash = await bcrypt.hash(password || 'Ecolio1234!', 10);
+    const generatedPassword = password?.trim() ? null : generateTempPassword();
+    const hash = await bcrypt.hash(password?.trim() || generatedPassword, 10);
     const [userRes] = await db.execute(
       'INSERT INTO users (school_id, first_name, last_name, email, password, role, phone, must_change_password) VALUES (?,?,?,?,?,?,?,1)',
       [req.user.school_id, first_name, last_name, email, hash, role || 'teacher', phone]
@@ -44,7 +46,10 @@ exports.create = async (req, res) => {
       'INSERT INTO staff (school_id, user_id, position, contract_type, hire_date, salary) VALUES (?,?,?,?,?,?)',
       [req.user.school_id, userRes.insertId, position, contract_type || 'CDI', hire_date, salary || null]
     );
-    res.status(201).json({ success: true, id: staffRes.insertId, user_id: userRes.insertId });
+    res.status(201).json({
+      success: true, id: staffRes.insertId, user_id: userRes.insertId,
+      credentials: generatedPassword ? { email, password: generatedPassword } : null,
+    });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ success: false, message: 'Email déjà utilisé' });
     handleError(res, err);
