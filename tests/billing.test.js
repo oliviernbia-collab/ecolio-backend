@@ -6,6 +6,21 @@ const mysql = require('mysql2/promise');
 const app = require('../src/app');
 const { loginAs } = require('./helpers');
 
+// Cloudinary simulé : les tests n'envoient aucun fichier sur le vrai compte et tournent sans
+// identifiants (intégration continue). Le reste du parcours d'upload (vérification du contenu
+// du fichier dans services/cloudinaryUpload.js) s'exécute normalement.
+jest.mock('../src/config/cloudinary', () => ({
+  uploader: {
+    upload_stream: (options, callback) => ({
+      end: () => callback(null, {
+        secure_url: `https://res.cloudinary.com/test/image/upload/${options.folder}/proof.png`,
+        public_id: `${options.folder}/proof`,
+      }),
+    }),
+    destroy: async () => ({ result: 'ok' }),
+  },
+}));
+
 const fixtures = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures.json'), 'utf8'));
 
 // PNG 1x1 minimal valide, utilisé comme fausse capture d'écran de paiement.
