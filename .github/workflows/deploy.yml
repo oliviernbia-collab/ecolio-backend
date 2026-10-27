@@ -1,0 +1,136 @@
+# Déploiement continu de l'API Écolio sur l'hébergement cPanel LWS.
+# À chaque push sur main : tests (sur une base MariaDB jetable), puis envoi des fichiers par FTPS
+# dans le dossier de l'application Node.js et redémarrage automatique (tmp/restart.txt, Passenger).
+#
+# Secrets GitHub requis (Settings > Secrets and variables > Actions) :
+#   FTP_SERVER    ex. web41.lws-hosting.com
+#   FTP_USERNAME  compte FTP dont le dossier est ~/backendecolio
+#   FTP_PASSWORD
+# Facultatif, pour réinstaller les dépendances quand package-lock.json change (accès SSH requis) :
+#   SSH_HOST, SSH_USERNAME, SSH_PRIVATE_KEY (et SSH_PORT si différent de 22)
+name: Tests et déploiement
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # .env.test n'est pas versionné : on le crée pour la base de test jetable
+      - name: Configuration de test
+        run: |
+          cat > .env.test <<EOF
+          NODE_ENV=test
+          DB_HOST=127.0.0.1
+          DB_USER=root
+          DB_PASSWORD=root
+          DB_NAME=ecolio_test
+          DB_PORT=3306
+          JWT_SECRET=$(openssl rand -hex 48)
+          JWT_EXPIRES_IN=1h
+          FRONTEND_URL=http://localhost:3000
+          EOF
+
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      FTP_SERVER: ${{ secrets.FTP_SERVER }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Secrets FTP configurés ?
+        if: env.FTP_SERVER == ''
+        run: |
+          echo "::warning::Secrets FTP_SERVER / FTP_USERNAME / FTP_PASSWORD absents : déploiement ignoré (tests OK)."
+
+      # Fichier modifié à chaque déploiement : Passenger redémarre l'application quand il change
+      - name: Préparer le redémarrage
+        if: env.FTP_SERVER != ''
+        run: mkdir -p tmp && echo "${GITHUB_SHA} $(date -u +%FT%TZ)" > tmp/restart.txt
+
+      # Seuls les fichiers modifiés sont envoyés. Le .env de production, node_modules et uploads
+      # ne sont jamais touchés (exclus), ni supprimés.
+      - name: Envoi FTPS vers le serveur
+        if: env.FTP_SERVER != ''
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          server-dir: ./
+          exclude: |
+            **/.git*
+            **/.git*/**
+            .github/**
+            node_modules/**
+            tests/**
+            uploads/**
+            .env
+            .env.*
+            README.md
+
+      # Uniquement si package-lock.json a changé et qu'un accès SSH est configuré
+      - name: Dépendances modifiées ?
+        if: env.FTP_SERVER != ''
+        id: deps
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -q '^package-lock.json$'; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Réinstaller les dépendances (SSH)
+        if: steps.deps.outputs.changed == 'true' && env.SSH_HOST != ''
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            source ~/nodevenv/backendecolio/*/bin/activate && cd ~/backendecolio
+            npm ci --omit=dev
+            touch tmp/restart.txt
+
+      - name: Rappel (dépendances sans SSH)
+        if: steps.deps.outputs.changed == 'true' && env.SSH_HOST == ''
+        run: echo "::warning::package-lock.json a changé — lancez « Run NPM Install » puis « Restart » dans Setup Node.js App."
+
+      # -k : vérifie que l'API a redémarré, indépendamment de l'état du certificat HTTPS
+      - name: Vérification de l'API
+        if: env.FTP_SERVER != ''
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsSk "https://ecolio.site/api/health?deploy=${GITHUB_SHA}" | grep -q '"status":"ok"'; then echo "API OK"; exit 0; fi
+            sleep 10
+          done
+          echo "::warning::L'API ne répond pas encore (certificat HTTPS ou redémarrage en cours) — vérifiez https://ecolio.site/api/health"
