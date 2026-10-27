@@ -30,5 +30,6 @@ router.use('/dashboard', require('./dashboard.routes'));
 router.use('/notifications', require('./notifications.routes'));
 router.use('/portal',        require('./portal.routes'));
 router.use('/public',        require('./public.routes'));
+router.use('/contact',       require('./contact.routes'));
 
 module.exports = router;

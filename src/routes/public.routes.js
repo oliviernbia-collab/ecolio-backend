@@ -8,5 +8,6 @@ router.get('/schools/:id/publications', ctrl.getSchoolPublications);
 router.get('/cities',  ctrl.getCities);
 router.get('/top-students',       ctrl.getTopStudents);
 router.get('/top-students/years', ctrl.getTopStudentYears);
+router.get('/announcement',       ctrl.getAnnouncement);
 
 module.exports = router;

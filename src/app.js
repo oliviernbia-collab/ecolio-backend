@@ -16,6 +16,13 @@ if (!process.env.JWT_SECRET) {
 const app = express();
 const isProd = process.env.NODE_ENV === 'production';
 
+// Derrière un proxy (Apache/Passenger sur cPanel) : TRUST_PROXY=1 fait lire la vraie adresse IP du
+// visiteur dans X-Forwarded-For. Sans ça, tous les visiteurs auraient l'IP du proxy et partageraient
+// les mêmes limites de tentatives (un seul abus bloquerait tout le monde).
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+}
+
 app.use(helmet());
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:3000',
@@ -48,6 +55,27 @@ const changePasswordLimiter = rateLimit({
   legacyHeaders: false,
 });
 app.use('/api/auth/change-password', changePasswordLimiter);
+// Désactivation de la 2FA / nouveaux codes de secours : limite les essais de codes
+app.use('/api/auth/2fa', (req, res, next) => (req.method === 'POST' ? changePasswordLimiter(req, res, next) : next()));
+
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { success: false, message: 'Trop de demandes de réinitialisation. Réessayez dans 1 heure.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/forgot-password', forgotPasswordLimiter);
+
+// Formulaire de contact public : limite le spam et la recherche de références par force brute
+const contactLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: 'Trop de messages envoyés. Réessayez dans 1 heure.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/contact', (req, res, next) => (req.method === 'POST' ? contactLimiter(req, res, next) : next()));
 
 // Limite les uploads (avatars, photos, logos, preuves de paiement) : évite qu'un compte
 // compromis ou un script abusif épuise le quota Cloudinary via des envois en rafale.
@@ -84,11 +112,21 @@ app.use('/uploads', (req, res, next) => {
 }, express.static(path.join(__dirname, '../uploads')));
 
 const routes = require('./routes');
-app.use('/api', routes);
+// Réponses de l'API jamais mises en cache par un proxy (ex. le cache Varnish de l'hébergeur) :
+// une réponse propre à un utilisateur ne doit jamais être resservie à un autre. Seules les
+// données publiques de la page d'accueil (/api/public) peuvent l'être, brièvement.
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', req.path.startsWith('/public/') ? 'public, max-age=60' : 'private, no-store');
+  next();
+});
 
-app.get('/health', (req, res) => {
+// Aussi sous /api : en production seul /api est routé vers Node.js (le reste est servi par Apache).
+// Déclarée avant les routeurs de /api, dont certains exigent une session pour tout chemin.
+app.get(['/health', '/api/health'], (req, res) => {
   res.json({ status: 'ok', app: 'Écolio API', version: '1.0.0', timestamp: new Date().toISOString() });
 });
+
+app.use('/api', routes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);

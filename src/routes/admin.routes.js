@@ -14,4 +14,15 @@ router.get('/subscription-payments',            authenticate, authorize('super_a
 router.put('/subscription-payments/:id/approve',authenticate, authorize('super_admin'), ctrl.approveSubscriptionPayment);
 router.put('/subscription-payments/:id/reject', authenticate, authorize('super_admin'), ctrl.rejectSubscriptionPayment);
 
+router.get('/settings',  authenticate, authorize('super_admin'), ctrl.getSettings);
+router.put('/settings',  authenticate, authorize('super_admin'), ctrl.updateSettings);
+
+router.get('/loyalty',            authenticate, authorize('super_admin'), ctrl.getLoyalty);
+router.get('/gifts',              authenticate, authorize('super_admin'), ctrl.getGifts);
+router.post('/schools/:id/gift',  authenticate, authorize('super_admin'), ctrl.giftSubscription);
+
+router.get('/contact-messages',            authenticate, authorize('super_admin'), ctrl.getContactMessages);
+router.put('/contact-messages/:id/read',   authenticate, authorize('super_admin'), ctrl.markContactMessageRead);
+router.put('/contact-messages/:id/reply',  authenticate, authorize('super_admin'), ctrl.replyContactMessage);
+
 module.exports = router;

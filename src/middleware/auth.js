@@ -1,55 +1,47 @@
-const jwt = require('jsonwebtoken');
-const db = require('../config/database');
+const { readSession, SessionError } = require('../utils/session');
 const { roleHasPermission } = require('../services/permissions');
 const { getSubscriptionState } = require('../services/subscription');
 
 // Routes toujours accessibles même abonnement expiré : connexion/déconnexion/profil,
-// et la gestion de l'abonnement elle-même (sinon impossible de payer pour se débloquer).
-const ALLOWED_WHEN_EXPIRED = ['/api/auth', '/api/subscription'];
+// et la gestion de l'abonnement elle-même (sinon impossible de payer pour se débloquer),
+// ainsi que le contact avec le support Écolio.
+const ALLOWED_WHEN_EXPIRED = ['/api/auth', '/api/subscription', '/api/contact'];
 
 const authenticate = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ success: false, message: 'Token d\'authentification manquant' });
-  }
-  const token = authHeader.split(' ')[1];
+  let session;
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const [users] = await db.execute(
-      `SELECT u.id, u.school_id, u.role, u.first_name, u.last_name, u.email,
-              s.is_active as school_is_active, s.trial_ends_at, s.subscription_paid_until
-       FROM users u LEFT JOIN schools s ON u.school_id = s.id
-       WHERE u.id = ? AND u.is_active = 1`,
-      [decoded.id]
-    );
-    if (!users.length) {
-      return res.status(401).json({ success: false, message: 'Utilisateur non trouvé ou désactivé' });
-    }
-    if (users[0].school_id && users[0].school_is_active === 0) {
-      return res.status(403).json({ success: false, message: 'Cette école a été suspendue. Contactez le support Écolio.' });
-    }
-
-    if (users[0].school_id) {
-      const subscription = getSubscriptionState(users[0]);
-      req.subscription = subscription;
-      const whitelisted = ALLOWED_WHEN_EXPIRED.some(p => req.baseUrl.startsWith(p));
-      if (!subscription.active && !whitelisted) {
-        return res.status(402).json({
-          success: false,
-          code: 'SUBSCRIPTION_EXPIRED',
-          message: "Votre période d'essai est terminée. Merci de régulariser votre abonnement pour continuer.",
-        });
-      }
-    }
-
-    delete users[0].school_is_active;
-    delete users[0].trial_ends_at;
-    delete users[0].subscription_paid_until;
-    req.user = users[0];
-    next();
+    session = await readSession(req, { userColumns: 'u.id, u.school_id, u.role, u.first_name, u.last_name, u.email' });
   } catch (err) {
-    return res.status(401).json({ success: false, message: 'Token invalide ou expiré' });
+    if (err instanceof SessionError) return res.status(err.status).json({ success: false, message: err.message });
+    return next(err);
   }
+  if (!session) {
+    return res.status(401).json({ success: false, message: 'Authentification requise' });
+  }
+  const user = session.user;
+  if (user.school_id && user.school_is_active === 0) {
+    return res.status(403).json({ success: false, message: 'Cette école a été suspendue. Contactez le support Écolio.' });
+  }
+
+  if (user.school_id) {
+    const subscription = getSubscriptionState(user);
+    req.subscription = subscription;
+    const whitelisted = ALLOWED_WHEN_EXPIRED.some(p => req.baseUrl.startsWith(p));
+    if (!subscription.active && !whitelisted) {
+      return res.status(402).json({
+        success: false,
+        code: 'SUBSCRIPTION_EXPIRED',
+        message: "Votre période d'essai est terminée. Merci de régulariser votre abonnement pour continuer.",
+      });
+    }
+  }
+
+  delete user.school_is_active;
+  delete user.trial_ends_at;
+  delete user.subscription_paid_until;
+  req.user = user;
+  req.session = session.decoded;
+  next();
 };
 
 const authorize = (...roles) => {

@@ -1,5 +1,16 @@
 const db = require('../config/database');
 const { handleError } = require('../utils/errors');
+const platform = require('../services/platform');
+
+// GET /public/announcement — message défilant affiché en haut des pages publiques (réglé par le super admin)
+exports.getAnnouncement = async (req, res) => {
+  try {
+    const { announcement_text, announcement_active } = await platform.getSettings();
+    res.json({ success: true, text: announcement_active ? announcement_text : '' });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
 
 // GET /public/schools?city= — écoles ayant activé la visibilité publique
 exports.getSchools = async (req, res) => {
