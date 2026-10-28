@@ -11,7 +11,7 @@ const MIGRATIONS = [
   'migration_v6.sql', 'migration_v7.sql', 'migration_v8.sql', 'migration_v9.sql',
   'migration_v10.sql', 'migration_v11.sql', 'migration_v12.sql', 'migration_v13.sql',
   'migration_v14.sql', 'migration_v15.sql', 'migration_v16.sql', 'migration_v17.sql',
-  'migration_v18.sql', 'migration_v19.sql', 'migration_v20.sql', 'migration_v21.sql',
+  'migration_v18.sql', 'migration_v19.sql', 'migration_v20.sql', 'migration_v21.sql', 'migration_v22.sql',
 ];
 
 module.exports = async () => {

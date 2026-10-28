@@ -131,7 +131,7 @@ exports.create = async (req, res) => {
     const {
       first_name, last_name, birth_date, birth_place, gender, class_id,
       parent_id, parent_data, address, blood_type, medical_notes,
-      emergency_contact_name, emergency_contact_phone, status, student_email,
+      emergency_contact_name, emergency_contact_phone, status, student_email, phone,
       matricule: customMatricule,
     } = req.body;
 
@@ -163,12 +163,12 @@ exports.create = async (req, res) => {
     const parentResult = await resolveParentId(parent_id, parent_data, req.user.school_id);
 
     const [result] = await db.execute(
-      `INSERT INTO students (school_id, matricule, first_name, last_name, birth_date, birth_place, gender,
+      `INSERT INTO students (school_id, matricule, first_name, last_name, birth_date, birth_place, gender, phone,
          class_id, parent_id, address, blood_type, medical_notes,
          emergency_contact_name, emergency_contact_phone, status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [req.user.school_id, matricule, first_name, last_name,
-       birth_date || null, birth_place || null, gender,
+       birth_date || null, birth_place || null, gender, phone?.trim() || null,
        class_id || null, parentResult.id,
        address || null, blood_type || null, medical_notes || null,
        emergency_contact_name || null, emergency_contact_phone || null,
@@ -217,7 +217,7 @@ exports.update = async (req, res) => {
     const {
       first_name, last_name, birth_date, birth_place, gender, class_id,
       parent_id, parent_data, address, blood_type, medical_notes,
-      emergency_contact_name, emergency_contact_phone, status, matricule,
+      emergency_contact_name, emergency_contact_phone, status, matricule, phone,
     } = req.body;
 
     if (class_id) {
@@ -238,11 +238,11 @@ exports.update = async (req, res) => {
     const parentResult = await resolveParentId(parent_id, parent_data, req.user.school_id);
 
     await db.execute(
-      `UPDATE students SET first_name=?, last_name=?, birth_date=?, birth_place=?, gender=?,
+      `UPDATE students SET first_name=?, last_name=?, birth_date=?, birth_place=?, gender=?, phone=?,
          class_id=?, parent_id=?, address=?, blood_type=?, medical_notes=?,
          emergency_contact_name=?, emergency_contact_phone=?, status=?, matricule=COALESCE(?, matricule)
        WHERE id=? AND school_id=?`,
-      [first_name, last_name, birth_date || null, birth_place || null, gender,
+      [first_name, last_name, birth_date || null, birth_place || null, gender, phone?.trim() || null,
        class_id || null, parentResult.id,
        address || null, blood_type || null, medical_notes || null,
        emergency_contact_name || null, emergency_contact_phone || null,
