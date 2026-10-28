@@ -142,20 +142,20 @@ exports.getPermissions = async (req, res) => {
   try {
     const member = await findEditableStaffUser(req);
     if (!member) return res.status(404).json({ success: false, message: 'Personnel non trouvé' });
-    const [catalog] = await db.execute(
-      `SELECT p.code, p.label, p.module,
-              (rp.permission_code IS NOT NULL) AS role_default,
-              up.granted
-       FROM permissions p
-       LEFT JOIN role_permissions rp ON rp.permission_code=p.code AND rp.role_code=?
-       LEFT JOIN user_permissions up ON up.permission_code=p.code AND up.user_id=?
-       ORDER BY p.module, p.code`,
-      [member.role, member.id]
-    );
+    // Trois lectures assemblées en JS plutôt qu'une jointure sur les codes : en production,
+    // user_permissions (créée par migration) n'a pas la collation des tables importées, et
+    // MariaDB refuse la comparaison (« Illegal mix of collations »).
+    const [[catalog], [roleRows], [overrideRows]] = await Promise.all([
+      db.execute('SELECT code, label, module FROM permissions ORDER BY module, code'),
+      db.execute('SELECT permission_code FROM role_permissions WHERE role_code=?', [member.role]),
+      db.execute('SELECT permission_code, granted FROM user_permissions WHERE user_id=?', [member.id]),
+    ]);
+    const roleSet = new Set(roleRows.map(r => r.permission_code));
+    const overrides = new Map(overrideRows.map(r => [r.permission_code, !!r.granted]));
     const permissions = catalog.map(p => ({
       code: p.code, label: p.label, module: p.module,
-      role_default: !!p.role_default,
-      granted: p.granted === null ? !!p.role_default : !!p.granted,
+      role_default: roleSet.has(p.code),
+      granted: overrides.has(p.code) ? overrides.get(p.code) : roleSet.has(p.code),
     }));
     res.json({ success: true, data: { user: member, editable: member.role !== 'director', permissions } });
   } catch (err) {
