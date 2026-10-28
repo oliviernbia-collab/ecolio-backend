@@ -89,6 +89,9 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           protocol: ftps
+          # 2 min au lieu de 30 s : chez LWS, la fin du transfert FTPS du dernier fichier dépasse parfois
+          # 30 s (« Timeout (data socket) »), ce qui laissait tmp/restart.txt vide et l'état de synchro absent
+          timeout: 120000
           server-dir: ./
           exclude: |
             **/.git*
