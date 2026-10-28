@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../config/database');
 
-const AUTO_MIGRATIONS = ['migration_v18.sql', 'migration_v19.sql', 'migration_v20.sql'];
+const AUTO_MIGRATIONS = ['migration_v18.sql', 'migration_v19.sql', 'migration_v20.sql', 'migration_v21.sql'];
 const IGNORABLE_ERRNOS = new Set([1060, 1061, 1050, 1826, 1022, 121]);
 
 async function runFile(file) {

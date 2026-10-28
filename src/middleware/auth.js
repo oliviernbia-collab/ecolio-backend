@@ -1,5 +1,5 @@
 const { readSession, SessionError } = require('../utils/session');
-const { roleHasPermission } = require('../services/permissions');
+const { userHasPermission } = require('../services/permissions');
 const { getSubscriptionState } = require('../services/subscription');
 
 // Routes toujours accessibles même abonnement expiré : connexion/déconnexion/profil,
@@ -53,12 +53,12 @@ const authorize = (...roles) => {
   };
 };
 
-// RBAC réel : autorise si le rôle de l'utilisateur possède la permission demandée
-// dans la table role_permissions (au lieu d'un tableau de rôles codé en dur).
+// RBAC réel : autorise si l'utilisateur possède la permission demandée — celles de son rôle
+// (role_permissions), ajustées individuellement par le directeur (user_permissions).
 const requirePermission = (permissionCode) => {
   return async (req, res, next) => {
     try {
-      const allowed = await roleHasPermission(req.user.role, permissionCode);
+      const allowed = await userHasPermission(req.user, permissionCode);
       if (!allowed) {
         return res.status(403).json({ success: false, message: 'Accès non autorisé pour ce rôle' });
       }

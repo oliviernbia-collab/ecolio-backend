@@ -8,6 +8,7 @@ const MAX_RESETS_PER_DAY = 5;
 const { handleError } = require('../utils/errors');
 const { logActivity } = require('../services/activityLog');
 const { getSubscriptionState, TRIAL_DAYS } = require('../services/subscription');
+const { getUserPermissions } = require('../services/permissions');
 const { generateTempPassword } = require('../utils/password');
 
 // Auto-migration : ajoute la colonne must_change_password si elle n'existe pas encore
@@ -96,7 +97,7 @@ async function finishLogin(req, res, user, description) {
   for (const field of ['password', 'token_version', 'trial_ends_at', 'subscription_paid_until', 'totp_secret', 'totp_last_step', 'school_is_active']) {
     delete user[field];
   }
-  res.json({ success: true, token, user: { ...user, subscription } });
+  res.json({ success: true, token, user: { ...user, subscription, ...(await getUserPermissions(user)) } });
 }
 
 // POST /auth/login/2fa — { challenge_token, code } : deuxième étape de connexion
@@ -197,7 +198,7 @@ exports.me = async (req, res) => {
     const user = users[0];
     const subscription = user?.school_id ? getSubscriptionState(user) : null;
     if (user) { delete user.trial_ends_at; delete user.subscription_paid_until; }
-    res.json({ success: true, user: user ? { ...user, subscription } : user });
+    res.json({ success: true, user: user ? { ...user, subscription, ...(await getUserPermissions(user)) } : user });
   } catch (err) {
     handleError(res, err);
   }
