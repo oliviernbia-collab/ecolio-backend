@@ -123,8 +123,15 @@ app.use('/api', (req, res, next) => {
 // Aussi sous /api : en production seul /api est routé vers Node.js (le reste est servi par Apache).
 // Déclarée avant les routeurs de /api, dont certains exigent une session pour tout chemin.
 // Surtout pas /api/health : ce chemin est l'API du module Infirmerie (routes/health.routes.js).
+// `commit` : commit déployé, écrit par la CI dans tmp/restart.txt et lu au démarrage — la CI
+// vérifie que l'API qui répond est bien la nouvelle version (null hors production).
+let deployedCommit = null;
+try {
+  deployedCommit = require('fs').readFileSync(path.join(__dirname, '../tmp/restart.txt'), 'utf8').split(/\s+/)[0] || null;
+} catch (_) {}
+
 app.get(['/health', '/api/status'], (req, res) => {
-  res.json({ status: 'ok', app: 'Écolio API', version: '1.0.0', timestamp: new Date().toISOString() });
+  res.json({ status: 'ok', app: 'Écolio API', version: '1.0.0', commit: deployedCommit, timestamp: new Date().toISOString() });
 });
 
 app.use('/api', routes);

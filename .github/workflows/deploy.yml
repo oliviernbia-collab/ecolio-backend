@@ -125,12 +125,18 @@ jobs:
         if: steps.deps.outputs.changed == 'true' && env.SSH_HOST == ''
         run: echo "::warning::package-lock.json a changé — lancez « Run NPM Install » puis « Restart » dans Setup Node.js App."
 
-      # -k : vérifie que l'API a redémarré, indépendamment de l'état du certificat HTTPS
+      # L'API doit répondre avec le commit qui vient d'être envoyé (lu dans tmp/restart.txt au
+      # démarrage) : sinon les fichiers ne sont pas arrivés dans ~/backendecolio (répertoire du
+      # compte FTP) ou l'application n'a pas redémarré — le déploiement échoue au lieu d'être vert.
+      # -k : indépendant de l'état du certificat HTTPS
       - name: Vérification de l'API
         if: env.FTP_SERVER != ''
         run: |
-          for i in $(seq 1 12); do
-            if curl -fsSk "https://ecolio.site/api/status?deploy=${GITHUB_SHA}" | grep -q '"status":"ok"'; then echo "API OK"; exit 0; fi
+          for i in $(seq 1 18); do
+            body=$(curl -fsSk "https://ecolio.site/api/status?deploy=${GITHUB_SHA}&try=$i" || true)
+            if echo "$body" | grep -q "\"commit\":\"${GITHUB_SHA}\""; then echo "API OK : commit ${GITHUB_SHA} en ligne"; exit 0; fi
             sleep 10
           done
-          echo "::warning::L'API ne répond pas encore (certificat HTTPS ou redémarrage en cours) — vérifiez https://ecolio.site/api/status"
+          echo "Dernière réponse : ${body:-aucune}"
+          echo "::error::L'API en ligne n'est pas le commit ${GITHUB_SHA}. Vérifiez que le répertoire du compte FTP est ~/backendecolio, puis « Restart » dans Setup Node.js App."
+          exit 1
