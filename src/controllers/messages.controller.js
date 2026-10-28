@@ -35,6 +35,14 @@ async function hasThreading() {
   return _threadingReady;
 }
 
+async function isRecipient(messageId, userId) {
+  const [rows] = await db.execute(
+    'SELECT 1 FROM message_recipients WHERE message_id = ? AND recipient_id = ? LIMIT 1',
+    [messageId, userId]
+  );
+  return rows.length > 0;
+}
+
 // GET /messages/groups
 exports.getGroupCounts = async (req, res) => {
   try {
@@ -159,6 +167,10 @@ exports.getOne = async (req, res) => {
       [req.params.id, req.user.school_id]
     );
     if (!rows.length) return res.status(404).json({ success: false, message: 'Message non trouvé' });
+    // Lisible seulement par son expéditeur et ses destinataires (parents et élèves y ont accès)
+    if (rows[0].sender_id !== req.user.id && !(await isRecipient(rows[0].id, req.user.id))) {
+      return res.status(404).json({ success: false, message: 'Message non trouvé' });
+    }
 
     await db.execute(
       'UPDATE message_recipients SET read_at = NOW() WHERE message_id = ? AND recipient_id = ? AND read_at IS NULL',
@@ -217,12 +229,13 @@ exports.send = async (req, res) => {
   } catch (err) { handleError(res, err); }
 };
 
-// POST /messages/:id/reply — réponse (enseignants uniquement)
+// POST /messages/:id/reply — réponse à un message reçu, adressée à son expéditeur
+// (personnel et parents ; les élèves lisent seulement les messages de l'école)
 exports.reply = async (req, res) => {
   try {
     const { role } = req.user;
-    if (!['teacher', 'director', 'super_admin', 'secretary'].includes(role)) {
-      return res.status(403).json({ success: false, message: 'Seuls les enseignants peuvent répondre aux messages' });
+    if (!['teacher', 'director', 'super_admin', 'secretary', 'parent'].includes(role)) {
+      return res.status(403).json({ success: false, message: "Vous ne pouvez pas répondre aux messages de l'école" });
     }
 
     const threading = await hasThreading();
@@ -238,7 +251,9 @@ exports.reply = async (req, res) => {
       'SELECT * FROM messages WHERE id = ? AND school_id = ?',
       [parentId, req.user.school_id]
     );
-    if (!orig.length) return res.status(404).json({ success: false, message: 'Message original non trouvé' });
+    if (!orig.length || orig[0].parent_message_id || !(await isRecipient(parentId, req.user.id))) {
+      return res.status(404).json({ success: false, message: 'Message original non trouvé' });
+    }
 
     const subject = orig[0].subject ? `Re : ${orig[0].subject}` : 'Re :';
     const [msgRes] = await db.execute(
