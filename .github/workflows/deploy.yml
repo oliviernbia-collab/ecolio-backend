@@ -130,7 +130,7 @@ jobs:
         if: env.FTP_SERVER != ''
         run: |
           for i in $(seq 1 12); do
-            if curl -fsSk "https://ecolio.site/api/health?deploy=${GITHUB_SHA}" | grep -q '"status":"ok"'; then echo "API OK"; exit 0; fi
+            if curl -fsSk "https://ecolio.site/api/status?deploy=${GITHUB_SHA}" | grep -q '"status":"ok"'; then echo "API OK"; exit 0; fi
             sleep 10
           done
-          echo "::warning::L'API ne répond pas encore (certificat HTTPS ou redémarrage en cours) — vérifiez https://ecolio.site/api/health"
+          echo "::warning::L'API ne répond pas encore (certificat HTTPS ou redémarrage en cours) — vérifiez https://ecolio.site/api/status"

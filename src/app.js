@@ -122,7 +122,8 @@ app.use('/api', (req, res, next) => {
 
 // Aussi sous /api : en production seul /api est routé vers Node.js (le reste est servi par Apache).
 // Déclarée avant les routeurs de /api, dont certains exigent une session pour tout chemin.
-app.get(['/health', '/api/health'], (req, res) => {
+// Surtout pas /api/health : ce chemin est l'API du module Infirmerie (routes/health.routes.js).
+app.get(['/health', '/api/status'], (req, res) => {
   res.json({ status: 'ok', app: 'Écolio API', version: '1.0.0', timestamp: new Date().toISOString() });
 });
 
