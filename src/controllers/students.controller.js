@@ -3,12 +3,17 @@ const bcrypt = require('bcryptjs');
 const { handleError } = require('../utils/errors');
 const { sendExcel } = require('../utils/excel');
 const { generateTempPassword } = require('../utils/password');
+const { revokeAllSessions } = require('../utils/session');
+
+// Email de connexion du compte élève lié au dossier (users.student_id).
+const STUDENT_LOGIN_EMAIL = `(SELECT su.email FROM users su WHERE su.student_id = s.id AND su.role = 'student' LIMIT 1) as student_login_email`;
 
 function buildStudentsQuery(schoolId, { class_id, status, search }) {
   let query = `
     SELECT s.*, c.name as class_name, c.cycle,
            CONCAT(u.first_name, ' ', u.last_name) as parent_name,
-           u.phone as parent_phone, u.email as parent_email
+           u.phone as parent_phone, u.email as parent_email,
+           ${STUDENT_LOGIN_EMAIL}
     FROM students s
     LEFT JOIN classes c ON s.class_id = c.id
     LEFT JOIN users u ON s.parent_id = u.id
@@ -63,7 +68,8 @@ exports.getOne = async (req, res) => {
     const [rows] = await db.execute(
       `SELECT s.*, c.name as class_name, c.cycle, c.level,
               CONCAT(u.first_name, ' ', u.last_name) as parent_name,
-              u.phone as parent_phone, u.email as parent_email
+              u.phone as parent_phone, u.email as parent_email,
+              ${STUDENT_LOGIN_EMAIL}
        FROM students s
        LEFT JOIN classes c ON s.class_id = c.id
        LEFT JOIN users u ON s.parent_id = u.id
@@ -261,5 +267,50 @@ exports.delete = async (req, res) => {
       [req.params.id, req.user.school_id]
     );
     res.json({ success: true, message: 'Élève archivé' });
+  } catch (err) { handleError(res, err); }
+};
+
+// Nouveau mot de passe temporaire pour un compte élève/parent dont les identifiants sont perdus.
+// Le changement est exigé à la prochaine connexion et toutes les sessions ouvertes sont fermées.
+async function issueTempPassword(res, user) {
+  const password = generateTempPassword();
+  const hash = await bcrypt.hash(password, 10);
+  await db.execute('UPDATE users SET password = ?, must_change_password = 1 WHERE id = ?', [hash, user.id]);
+  await revokeAllSessions(user.id);
+  res.json({ success: true, credentials: { email: user.email, password } });
+}
+
+// POST /students/:id/reset-password { account: 'student' | 'parent' }
+exports.resetAccountPassword = async (req, res) => {
+  try {
+    const account = req.body.account === 'parent' ? 'parent' : 'student';
+    const [[student]] = await db.execute('SELECT id, parent_id FROM students WHERE id = ? AND school_id = ?', [req.params.id, req.user.school_id]);
+    if (!student) return res.status(404).json({ success: false, message: 'Élève non trouvé' });
+
+    const [[user]] = account === 'parent'
+      ? await db.execute(
+          "SELECT id, email FROM users WHERE id = ? AND school_id = ? AND role = 'parent'",
+          [student.parent_id ?? 0, req.user.school_id])
+      : await db.execute(
+          "SELECT id, email FROM users WHERE student_id = ? AND school_id = ? AND role = 'student'",
+          [student.id, req.user.school_id]);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: account === 'parent' ? "Aucun compte parent n'est lié à cet élève" : "Cet élève n'a pas de compte de connexion",
+      });
+    }
+    await issueTempPassword(res, user);
+  } catch (err) { handleError(res, err); }
+};
+
+// POST /students/parents/:id/reset-password
+exports.resetParentPassword = async (req, res) => {
+  try {
+    const [[user]] = await db.execute(
+      "SELECT id, email FROM users WHERE id = ? AND school_id = ? AND role = 'parent'",
+      [req.params.id, req.user.school_id]);
+    if (!user) return res.status(404).json({ success: false, message: 'Parent non trouvé' });
+    await issueTempPassword(res, user);
   } catch (err) { handleError(res, err); }
 };
