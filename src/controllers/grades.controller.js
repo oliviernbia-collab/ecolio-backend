@@ -30,7 +30,7 @@ async function computeBulletin(studentId, schoolId, period) {
   const classFilterParam = student.class_id || studentId;
 
   const [gradeRows] = await db.execute(
-    `SELECT g.student_id, g.subject_id, g.value, g.period,
+    `SELECT g.student_id, g.subject_id, g.value, g.max_value, g.period,
             sub.name as subject_name, sub.coefficient,
             CONCAT(u.first_name,' ',u.last_name) as teacher_name
      FROM grades g
@@ -59,7 +59,8 @@ async function computeBulletin(studentId, schoolId, period) {
     const byStudent = bySubject[g.subject_id].byStudent;
     if (!byStudent[g.student_id]) byStudent[g.student_id] = {};
     if (!byStudent[g.student_id][g.period]) byStudent[g.student_id][g.period] = { total: 0, count: 0 };
-    byStudent[g.student_id][g.period].total += parseFloat(g.value);
+    // Chaque note est ramenée sur 20 : une note d'examen garde le barème de l'examen (ex. /40).
+    byStudent[g.student_id][g.period].total += (parseFloat(g.value) / (parseFloat(g.max_value) || 20)) * 20;
     byStudent[g.student_id][g.period].count++;
   }
 

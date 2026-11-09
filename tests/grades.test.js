@@ -68,4 +68,22 @@ describe('Grades — isolation multi-tenant et validation', () => {
       .send({ student_id: fixtures.studentBId, subject_id: fixtures.subjectAId, value: 10, max_value: 20, period: 'trimestre1' });
     expect(res.status).toBe(404);
   });
+
+  test('le bulletin ramène chaque note sur 20 selon son barème', async () => {
+    // 30/40 et 15/20 valent toutes deux 15/20 : la moyenne de la matière doit être 15, pas 22,5.
+    const ids = [];
+    for (const [value, max_value] of [[30, 40], [15, 20]]) {
+      const res = await request(app).post('/api/grades').set('Authorization', `Bearer ${teacherAToken}`)
+        .send({ student_id: fixtures.studentAId, subject_id: fixtures.subjectAId, value, max_value, period: 'trimestre3' });
+      expect(res.status).toBe(201);
+      ids.push(res.body.id);
+    }
+    const res = await request(app).get(`/api/grades/bulletin/${fixtures.studentAId}`)
+      .query({ period: 'trimestre3' }).set('Authorization', `Bearer ${teacherAToken}`);
+    for (const id of ids) await request(app).delete(`/api/grades/${id}`).set('Authorization', `Bearer ${teacherAToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.subjects[0].average).toBe(15);
+    expect(res.body.data.generalAverage).toBe(15);
+  });
 });
