@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const { handleError } = require('../utils/errors');
+const { sendClassListPdf } = require('../utils/classListPdf');
 
 exports.getAll = async (req, res) => {
   try {
@@ -89,6 +90,37 @@ exports.delete = async (req, res) => {
   try {
     await db.execute('DELETE FROM classes WHERE id=? AND school_id=?', [req.params.id, req.user.school_id]);
     res.json({ success: true, message: 'Classe supprimée' });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+// GET /classes/:id/list/pdf — liste de classe vierge à imprimer (notes saisies à la main)
+exports.getListPdf = async (req, res) => {
+  try {
+    const [[cls]] = await db.execute(
+      `SELECT c.name, ay.name as year_name FROM classes c
+       LEFT JOIN academic_years ay ON ay.id = c.academic_year_id
+       WHERE c.id = ? AND c.school_id = ?`,
+      [req.params.id, req.user.school_id]
+    );
+    if (!cls) return res.status(404).json({ success: false, message: 'Classe non trouvée' });
+
+    let yearName = cls.year_name;
+    if (!yearName) {
+      const [[current]] = await db.execute('SELECT name FROM academic_years WHERE school_id = ? AND is_current = 1 LIMIT 1', [req.user.school_id]);
+      yearName = current?.name || null;
+    }
+    const [[school]] = await db.execute('SELECT name FROM schools WHERE id = ?', [req.user.school_id]);
+    const [students] = await db.execute(
+      "SELECT matricule, first_name, last_name FROM students WHERE class_id = ? AND school_id = ? AND status != 'archive' ORDER BY last_name, first_name",
+      [req.params.id, req.user.school_id]
+    );
+
+    const slug = cls.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    sendClassListPdf(res, `liste-de-classe-${slug || req.params.id}.pdf`, {
+      schoolName: school?.name, yearName, className: cls.name, students,
+    });
   } catch (err) {
     handleError(res, err);
   }

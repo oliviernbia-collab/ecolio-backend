@@ -6,6 +6,7 @@ const ctrl = require('../controllers/classes.controller');
 router.get('/', authenticate, ctrl.getAll);
 router.get('/:id', authenticate, ctrl.getOne);
 router.get('/:id/students', authenticate, ctrl.getStudents);
+router.get('/:id/list/pdf', authenticate, requirePermission('students.read'), ctrl.getListPdf);
 router.post('/', authenticate, requirePermission('classes.write'),
   auditLog('create', 'class', req => `Classe créée : ${req.body.name || ''}`), ctrl.create);
 router.put('/:id', authenticate, requirePermission('classes.write'),
